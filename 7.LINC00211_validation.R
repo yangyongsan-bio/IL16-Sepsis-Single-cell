@@ -6,8 +6,8 @@ suppressPackageStartupMessages({
 })
 
 # --- 路径配置 ---
-ped_expr_path <- "ped/2.6.bulk_tmm_log2cpm.csv"
-ped_clin_path <- "ped/2.6.bulk_clinical.csv"
+ped_expr_path <- "pediatric/2.6.bulk_tmm_log2cpm.csv"
+ped_clin_path <- "pediatric/2.6.bulk_clinical.csv"
 adult_expr_path <- "adult/2.6.bulk_tmm_log2cpm.csv"
 adult_clin_path <- "adult/2.6.bulk_clinical.csv"
 
