@@ -21,7 +21,7 @@ ped_clin <- read.csv(ped_clin_path, stringsAsFactors = FALSE)
 adult_expr <- read.csv(adult_expr_path, row.names = 1, check.names = FALSE)
 adult_clin <- read.csv(adult_clin_path, stringsAsFactors = FALSE)
 
-cat("Pediatric:", nrow(ped_expr), "genes x", ncol(ped_expr), "samples |",
+cat("Children:", nrow(ped_expr), "genes x", ncol(ped_expr), "samples |",
     nrow(ped_clin), "clinical records\n")
 cat("Adult:", nrow(adult_expr), "genes x", ncol(adult_expr), "samples |",
     nrow(adult_clin), "clinical records\n")
@@ -41,12 +41,13 @@ adult_myeloid_genes <- c("SOD1","MGA","MTMR9")
 adult_tcell_genes <- c("UPF3A","SOCS1","CYB561D1","ND4L","PLIN2")
 # 跨模块枢纽
 il16_gene <- c("IL16")
-# 轨迹通讯配体（CellChat 中"目标亚群→选中轨迹细胞"实际参与通讯的配体，与共表达输入一致）
+# 轨迹通讯配体
 # 儿童髓系 IM→Lineage2：CCL3/CCL3L1/MIF/IL16/RETN/NAMPT/ANXA1/GRN/LGALS9
 # 成人髓系 cDC2→Lineage3：MIF/IL16/ANXA1/GAS6/GRN/LGALS9
 # 成人T CD8 TEMRA：TNF/MIF/IL16/GZMA
 ligand_genes <- c("CCL3","CCL3L1","MIF","RETN","NAMPT","ANXA1","GRN","LGALS9",
                   "GAS6","TNF","GZMA")
+
 pirat_targets <- c("S100A8","S100A9")
 
 myeloid_genes <- c(ped_myeloid_genes, adult_myeloid_genes)   # 髓系（正面验证）
@@ -83,15 +84,15 @@ for (g in c("LINC00211", all_target_genes)) {
   ped_ok <- g %in% rownames(ped_expr)
   adult_ok <- g %in% rownames(adult_expr)
   if (!ped_ok || !adult_ok) {
-    cat("WARNING:", g, "- Pediatric:", ped_ok, "Adult:", adult_ok, "\n")
+    cat("WARNING:", g, "- Children:", ped_ok, "Adults:", adult_ok, "\n")
   }
 }
 
 # --- LINC00211 表达概况 ---
 cat("\n=== LINC00211 Expression Overview ===\n")
-for (label in c("Pediatric","Adult")) {
-  expr <- if (label == "Pediatric") ped_expr else adult_expr
-  clin <- if (label == "Pediatric") ped_clin else adult_clin
+for (label in c("Children","Adults")) {
+  expr <- if (label == "Children") ped_expr else adult_expr
+  clin <- if (label == "Children") ped_clin else adult_clin
   vals <- as.numeric(expr["LINC00211", ])
   cat(sprintf("%s: range [%.2f, %.2f] | median %.2f | IQR [%.2f, %.2f] | >0: %d/%d\n",
               label, min(vals), max(vals), median(vals),
@@ -104,9 +105,9 @@ cat("\n=== Part 1: Clinical Association ===\n")
 
 clinical_results <- data.frame()
 
-for (label in c("Pediatric","Adult")) {
-  expr <- if (label == "Pediatric") ped_expr else adult_expr
-  clin <- if (label == "Pediatric") ped_clin else adult_clin
+for (label in c("Children","Adults")) {
+  expr <- if (label == "Children") ped_expr else adult_expr
+  clin <- if (label == "Children") ped_clin else adult_clin
   n <- nrow(clin)
 
   lnc_vals <- as.numeric(expr["LINC00211", ])
@@ -156,14 +157,15 @@ for (label in c("Pediatric","Adult")) {
 
 write.csv(clinical_results, file.path(out_dir, "LINC00211_clinical_association.csv"), row.names = FALSE)
 
+
 # Part 2: 共表达特异性分析
 cat("\n=== Part 2: Co-expression Specificity ===\n")
 
 coexpr_all <- data.frame()
 
-for (label in c("Pediatric","Adult")) {
-  expr <- if (label == "Pediatric") ped_expr else adult_expr
-  clin <- if (label == "Pediatric") ped_clin else adult_clin
+for (label in c("Children","Adults")) {
+  expr <- if (label == "Children") ped_expr else adult_expr
+  clin <- if (label == "Children") ped_clin else adult_clin
 
   lnc_vals <- as.numeric(expr["LINC00211", ])
 
@@ -176,7 +178,7 @@ for (label in c("Pediatric","Adult")) {
     # Pearson
     pe <- cor.test(lnc_vals, gene_vals, method = "pearson")
 
-    # 分类
+    # 分类（模块级 + 分析分组）
     category <- analysis_group(gene)
     module <- module_cat[[gene]]
 
@@ -194,19 +196,40 @@ for (label in c("Pediatric","Adult")) {
   }
 }
 
+# BH-FDR 校正（各队列内）
 coexpr_all$spearman_fdr <- p.adjust(coexpr_all$spearman_p, method = "BH")
 coexpr_all$significant <- coexpr_all$spearman_p < 0.05 & abs(coexpr_all$spearman_rho) > 0.3
 
 write.csv(coexpr_all, file.path(out_dir, "LINC00211_coexpression.csv"), row.names = FALSE)
+
+# 打印摘要（按模块级细分）
+cat("\n--- Co-expression Summary ---\n")
+for (label in c("Children","Adults")) {
+  cat(sprintf("\n[%s]\n", label))
+  sub <- coexpr_all[coexpr_all$cohort == label, ]
+  for (grp in c("Myeloid (positive)","T cell (negative control)",
+                "PIRAT1 Target (mechanism)","CellChat Ligand","IL16 (cross-module)")) {
+    cat_sub <- sub[sub$category == grp, ]
+    sig <- cat_sub[cat_sub$significant, ]
+    cat(sprintf("  %s: %d/%d significant (rho>0.3, p<0.05)\n",
+                grp, nrow(sig), nrow(cat_sub)))
+    for (i in seq_len(nrow(cat_sub))) {
+      r <- cat_sub[i, ]
+      star <- ifelse(r$significant, " *", "")
+      cat(sprintf("    %s [%s]: rho=%.3f, p=%.4f, r=%.3f%s\n",
+                  r$gene, r$module, r$spearman_rho, r$spearman_p, r$pearson_r, star))
+    }
+  }
+}
 
 # Part 3: 偏相关（控制 SOFA）
 cat("\n=== Part 3: Partial Correlation (controlling SOFA) ===\n")
 
 partial_results <- data.frame()
 
-for (label in c("Pediatric","Adult")) {
-  expr <- if (label == "Pediatric") ped_expr else adult_expr
-  clin <- if (label == "Pediatric") ped_clin else adult_clin
+for (label in c("Children","Adults")) {
+  expr <- if (label == "Children") ped_expr else adult_expr
+  clin <- if (label == "Children") ped_clin else adult_clin
 
   lnc_vals <- as.numeric(expr["LINC00211", ])
   sofa <- clin$SOFA
@@ -246,14 +269,33 @@ partial_results$partial_fdr <- p.adjust(partial_results$partial_p, method = "BH"
 
 write.csv(partial_results, file.path(out_dir, "LINC00211_partial_cor.csv"), row.names = FALSE)
 
-# 可视化
+cat("\n--- Partial Correlation Summary ---\n")
+for (label in c("Children","Adults")) {
+  cat(sprintf("\n[%s]\n", label))
+  sub <- partial_results[partial_results$cohort == label, ]
+  for (grp in c("Myeloid (positive)","T cell (negative control)",
+                "PIRAT1 Target (mechanism)","CellChat Ligand","IL16 (cross-module)")) {
+    cat_sub <- sub[sub$category == grp, ]
+    sig <- cat_sub[cat_sub$partial_p < 0.05 & abs(cat_sub$partial_rho) > 0.3, ]
+    cat(sprintf("  %s: %d/%d significant after controlling SOFA\n",
+                grp, nrow(sig), nrow(cat_sub)))
+    for (i in seq_len(nrow(cat_sub))) {
+      r <- cat_sub[i, ]
+      star <- ifelse(r$partial_p < 0.05 & abs(r$partial_rho) > 0.3, " *", "")
+      cat(sprintf("    %s [%s]: partial_rho=%.3f, p=%.4f%s\n",
+                  r$gene, r$module, r$partial_rho, r$partial_p, star))
+    }
+  }
+}
+
+# Part 5: 可视化
 cat("\n=== Part 5: Visualization ===\n")
 
 # --- Fig 1: SOFA 散点图 ---
 plot_list <- list()
-for (label in c("Pediatric","Adult")) {
-  expr <- if (label == "Pediatric") ped_expr else adult_expr
-  clin <- if (label == "Pediatric") ped_clin else adult_clin
+for (label in c("Children","Adults")) {
+  expr <- if (label == "Children") ped_expr else adult_expr
+  clin <- if (label == "Children") ped_clin else adult_clin
   lnc_vals <- as.numeric(expr["LINC00211", ])
 
   p <- ggplot(data.frame(LINC00211 = lnc_vals, SOFA = clin$SOFA,
@@ -326,7 +368,7 @@ compare_df <- merge(
 compare_df$category <- factor(compare_df$category,
     levels = c("Myeloid (positive)","PIRAT1 Target (mechanism)",
                "CellChat Ligand","T cell (negative control)","IL16 (cross-module)"))
-
+# 基因顺序与 Fig2 对齐（merge 会按字母重排，需重设 appearance order）
 compare_df$gene <- factor(compare_df$gene, levels = levels(coexpr_plot$gene))
 
 compare_long <- compare_df %>%
@@ -355,9 +397,9 @@ cat("Saved: Fig3_raw_vs_partial\n")
 
 # --- Fig 4: 28天死亡 箱线图 ---
 death_plot_list <- list()
-for (label in c("Pediatric","Adult")) {
-  expr <- if (label == "Pediatric") ped_expr else adult_expr
-  clin <- if (label == "Pediatric") ped_clin else adult_clin
+for (label in c("Children","Adults")) {
+  expr <- if (label == "Children") ped_expr else adult_expr
+  clin <- if (label == "Children") ped_clin else adult_clin
   lnc_vals <- as.numeric(expr["LINC00211", ])
   death <- clin$death_28
 
@@ -383,4 +425,3 @@ ggsave(file.path(out_dir, "Fig4_LINC00211_death_boxplot.pdf"),
        p_death, width = 9, height = 4.5)
 ggsave(file.path(out_dir, "Fig4_LINC00211_death_boxplot.png"),
        p_death, width = 9, height = 4.5, dpi = 300)
-cat("Saved: Fig4_LINC00211_death_boxplot\n")
