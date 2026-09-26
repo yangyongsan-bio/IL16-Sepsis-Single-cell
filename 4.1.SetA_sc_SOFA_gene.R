@@ -72,7 +72,7 @@ write.csv(gene_assoc, file="3.5.T.SOFA_gene.csv", row.names =F,quote=F)
 
 set_A <- gene_assoc %>%
   filter(p_raw < 0.05,                     # 原始相关显著
-         abs(rho_raw) > 0.3,               # 效应量足够大
+         abs(rho_raw) > 0.2,               # 效应量足够大
          !is.na(p_partial),                # 偏相关可计算
          p_partial < 0.05,                 # 偏相关显著（控制混杂后仍显著）
          sign(rho_raw) == sign(rho_partial))  # 方向一致
